@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+# scrcpyqr: A wrapper script to pair an Android device via QR code and launch scrcpy
+
+# --- Colors ---
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# --- Initialization ---
+# Prioritize official Google ADB if installed by this script
+if [ -d "$HOME/.local/platform-tools" ]; then
+    export PATH="$HOME/.local/platform-tools:$PATH"
+fi
+
+# --- Dependency Checks ---
+if ! command -v scrcpy >/dev/null 2>&1; then
+    echo -e "${RED}Error: 'scrcpy' is not installed.${NC}"
+    echo "Please install it using your package manager (e.g., sudo apt install scrcpy)"
+    exit 1
+fi
+
+if ! command -v adb >/dev/null 2>&1; then
+    echo -e "${RED}Error: 'adb' is not installed.${NC}"
+    echo "Please install it (e.g., sudo apt install adb)"
+    exit 1
+fi
+
+# --- Check mDNS Support for QR Code ---
+check_and_fix_mdns() {
+    # If adb mdns check returns nothing or fails, mDNS is likely broken (common on Linux)
+    MDNS_OUTPUT=$(adb mdns check 2>&1)
+    if [[ -z "$MDNS_OUTPUT" || "$MDNS_OUTPUT" == *"error"* ]]; then
+        echo -e "${YELLOW}Warning: Your system's version of ADB does not support mDNS network discovery.${NC}"
+        echo "This is required for the automatic QR code pairing to work."
+        read -p "Would you like to automatically download the official Google ADB to fix this? (Y/n): " dl_choice
+        if [[ "$dl_choice" == "y" || "$dl_choice" == "Y" || "$dl_choice" == "" ]]; then
+            echo -e "${CYAN}Downloading official Android Platform Tools...${NC}"
+            mkdir -p /tmp/scrcpyqr_dl
+            wget -q --show-progress https://dl.google.com/android/repository/platform-tools-latest-linux.zip -O /tmp/scrcpyqr_dl/platform-tools.zip
+            echo -e "${CYAN}Extracting to ~/.local/platform-tools...${NC}"
+            mkdir -p "$HOME/.local"
+            unzip -q -o /tmp/scrcpyqr_dl/platform-tools.zip -d "$HOME/.local/"
+            export PATH="$HOME/.local/platform-tools:$PATH"
+            rm -rf /tmp/scrcpyqr_dl
+            echo -e "${GREEN}Official ADB installed successfully!${NC}"
+        else
+            echo -e "${YELLOW}Skipping ADB update. QR Code scanning will be disabled.${NC}"
+            return 1
+        fi
+    fi
+    return 0
+}
+
+# --- Main Menu ---
+clear
+echo -e "${CYAN}========================================${NC}"
+echo -e "${GREEN}          scrcpyqr Setup                ${NC}"
+echo -e "${CYAN}========================================${NC}"
+echo "How would you like to connect your phone?"
+echo ""
+echo -e "${YELLOW}--- Initial Setup (First Time) ---${NC}"
+echo "1. Scan QR Code (Automatic pairing - Recommended)"
+echo "2. Enter Pairing Code (Manual pairing - Fallback)"
+echo ""
+echo -e "${YELLOW}--- Daily Use ---${NC}"
+echo "3. Quick Connect (Already Paired)"
+echo -e "${CYAN}========================================${NC}"
+read -p "Choose an option (1, 2, or 3): " OPTION
+
+echo ""
+
+if [ "$OPTION" = "1" ]; then
+    if ! check_and_fix_mdns; then
+        echo -e "${RED}QR Code pairing requires mDNS. Please restart and use Option 2, or allow the ADB update.${NC}"
+        exit 1
+    fi
+
+    if ! command -v qrencode >/dev/null 2>&1; then
+        echo -e "${RED}Error: 'qrencode' is not installed.${NC}"
+        echo "Please install it (e.g., sudo apt install qrencode), or use Option 2."
+        exit 1
+    fi
+
+    NAME="scrcpy-$(printf '%04x' "$RANDOM")"
+    CODE=$(( (RANDOM * 32768 + RANDOM) % 900000 + 100000 ))
+    PAYLOAD="WIFI:T:ADB;S:$NAME;P:$CODE;;"
+
+    echo -e "${CYAN}1. Connect your PC and Phone to the SAME Wi-Fi network (or use your phone's hotspot).${NC}"
+    echo -e "${CYAN}2. On your phone go to: Developer options > Wireless debugging > Pair device with QR code${NC}"
+    echo ""
+
+    QR_IMAGE="/tmp/scrcpyqr.png"
+    qrencode -m 4 -l Q -o "$QR_IMAGE" "$PAYLOAD"
+
+    if command -v xdg-open >/dev/null 2>&1; then
+        xdg-open "$QR_IMAGE" 2>/dev/null &
+    else
+        echo -e "${YELLOW}Could not open image automatically. Please open this file manually: $QR_IMAGE${NC}"
+    fi
+
+    echo -e "${YELLOW}Waiting for phone to scan the QR code... (Ctrl-C to cancel)${NC}"
+
+    ADDR=""
+    for i in {1..60}; do
+        ADDR=$(adb mdns services 2>/dev/null | awk '/_adb-tls-pairing\._tcp/ {print $3; exit}')
+        if [ -n "$ADDR" ]; then
+            break
+        fi
+        sleep 1
+    done
+
+    if [ -z "$ADDR" ]; then
+        echo -e "${RED}Timeout! No pairing request detected.${NC}"
+        echo "Make sure you scanned the QR code, and that your Wi-Fi doesn't block mDNS."
+        exit 1
+    fi
+
+    echo -e "${GREEN}Phone detected at $ADDR. Pairing...${NC}"
+    adb pair "$ADDR" "$CODE" > /dev/null
+
+elif [ "$OPTION" = "2" ]; then
+    echo -e "${CYAN}1. Connect your PC and Phone to the SAME Wi-Fi network.${NC}"
+    echo -e "${CYAN}2. On your phone go to: Developer options > Wireless debugging > Pair device with pairing code${NC}"
+    echo ""
+    read -p "Enter the IP address & Port shown on screen (e.g. 192.168.1.5:43123): " ADDR
+    read -p "Enter the 6-digit Wi-Fi pairing code: " CODE
+    
+    echo -e "${YELLOW}Pairing with $ADDR...${NC}"
+    adb pair "$ADDR" "$CODE"
+
+elif [ "$OPTION" = "3" ]; then
+    echo -e "${CYAN}--- Quick Connect ---${NC}"
+else
+    echo -e "${RED}Invalid option selected. Exiting.${NC}"
+    exit 1
+fi
+
+# --- Connection Handling ---
+if [ "$OPTION" = "1" ] || [ "$OPTION" = "2" ]; then
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}Pairing failed. Exiting.${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}Pairing successful! Waiting for device to finalize...${NC}"
+    sleep 2
+fi
+
+DEVICE_COUNT=$(adb devices | grep -v "List of devices attached" | grep -w "device$" | wc -l)
+
+if [ "$DEVICE_COUNT" -eq 0 ]; then
+    if [ "$OPTION" = "1" ]; then
+        echo -e "${YELLOW}Trying to connect automatically...${NC}"
+        CONNECT_ADDR=$(adb mdns services 2>/dev/null | awk '/_adb-tls-connect\._tcp/ {print $3; exit}')
+    else
+        echo ""
+        echo -e "${CYAN}Look at the main 'Wireless debugging' screen on your phone.${NC}"
+        read -p "Enter the IP address & Port (e.g. 192.168.1.5:38421): " CONNECT_ADDR
+    fi
+
+    if [ -n "$CONNECT_ADDR" ]; then
+        adb connect "$CONNECT_ADDR"
+        sleep 1
+    else
+        echo -e "${RED}Could not find the connect port. Make sure Wireless Debugging is fully enabled.${NC}"
+        exit 1
+    fi
+fi
+
+DEVICE_COUNT=$(adb devices | grep -v "List of devices attached" | grep -w "device$" | wc -l)
+if [ "$DEVICE_COUNT" -eq 0 ]; then
+    echo -e "${RED}Failed to connect to the device. Please try again.${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}Successfully connected! Starting scrcpy...${NC}"
+scrcpy -e
