@@ -34,3 +34,11 @@ scrcpyqr
 1. Ensure your PC and Phone are on the **same Wi-Fi network** (or connect your PC to your phone's Mobile Hotspot for zero-lag performance).
 2. On your phone, go to **Developer Options > Wireless Debugging**.
 3. Follow the on-screen prompts in your terminal!
+
+## 💡 Awesome scrcpy Shortcuts / Pro Tips
+- **Turn Screen Off**: Press `Alt+O` to turn your physical phone screen off while mirroring (saves massive battery and prevents burn-in).
+- **Turn Screen On**: Press `Alt+Shift+O` to turn the physical screen back on.
+- **Wake up**: Right-click anywhere in the scrcpy window to wake the phone up if it falls asleep.
+- **Fullscreen**: Press `Alt+F` to toggle fullscreen mode.
+- **Go Home**: Press `Alt+h` or Middle-Click.
+- **Go Back**: Press `Alt+b` or Right-Click (when screen is on).

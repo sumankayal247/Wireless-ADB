@@ -186,6 +186,12 @@ if [ "$DEVICE_COUNT" -eq 0 ]; then
     exit 1
 fi
 
+echo -e "${YELLOW}\n💡 Pro Tips for scrcpy:${NC}"
+echo " - Press Alt+O to turn your phone screen off (saves battery)."
+echo " - Press Alt+Shift+O to turn it back on."
+echo " - Right-click to turn on the screen/wake up the phone."
+echo " - Press Alt+F to toggle fullscreen."
+echo ""
 echo -e "${GREEN}Successfully connected! Starting scrcpy...${NC}"
 # Pass any custom arguments provided by the user (e.g. scrcpyqr --turn-screen-off)
 scrcpy -e "${SCRCPY_ARGS[@]}"
