@@ -13,7 +13,15 @@ echo -e "${GREEN}      Installing scrcpyqr Dependencies  ${NC}"
 echo -e "${CYAN}========================================${NC}"
 
 # Detect package manager
-if command -v apt >/dev/null 2>&1; then
+if [ "$(uname -s)" = "Darwin" ]; then
+    if command -v brew >/dev/null 2>&1; then
+        PKG_MGR="brew"
+        INSTALL_CMD="brew install"
+    else
+        echo -e "${RED}Homebrew is required on macOS. Please install brew first.${NC}"
+        exit 1
+    fi
+elif command -v apt >/dev/null 2>&1; then
     PKG_MGR="apt"
     INSTALL_CMD="sudo apt update && sudo apt install -y"
 elif command -v dnf >/dev/null 2>&1; then
@@ -27,8 +35,12 @@ else
     exit 1
 fi
 
-echo -e "${YELLOW}Installing scrcpy, adb, and qrencode using $PKG_MGR...${NC}"
-$INSTALL_CMD scrcpy adb qrencode
+echo -e "${YELLOW}Installing dependencies using $PKG_MGR...${NC}"
+if [ "$PKG_MGR" = "brew" ]; then
+    $INSTALL_CMD scrcpy android-platform-tools qrencode
+else
+    $INSTALL_CMD scrcpy adb qrencode
+fi
 
 echo -e "${YELLOW}Installing scrcpyqr to ~/.local/bin...${NC}"
 mkdir -p "$HOME/.local/bin"
